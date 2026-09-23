@@ -1,0 +1,5 @@
+---
+title: "stats506_hw2"
+format: html
+editor: source
+---
