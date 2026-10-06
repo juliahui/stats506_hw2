@@ -1,5 +1,431 @@
 ---
 title: "stats506_hw2"
-format: html
+format:
+  html:
+    embed-resources: true
 editor: source
 ---
+
+github repo link: https://github.com/juliahui/stats506_hw2.git
+
+```{r}
+#install.packages("microbenchmark")
+```
+
+```{r}
+library(tidyverse)
+library(roxygen2)
+library(schoolmath) #is.positive
+library(microbenchmark)
+```
+
+Problem 1: Random Walk with Momentum
+
+first step: all four directions have equal prob (1/4), 
+for rest of steps: direction depends on previous step
+
+With probability p, the particle moves in the same direction as the previous 
+step.
+
+With probability 1−p, it chooses one of the four directions at random, with 
+equal probability (1/4)
+
+a. simulation function (i + ii) write function momentum_walk(n, p) that 
+simulates this process and returns the particle's final position, sanitize 
+input + b (i). implement simulation: write the function momentum_walk1(n, p) 
+using a loop (a for loop or a while loop), briefly explain logic of each 
+implementation
+```{r}
+#'Function to simulate random walk with momentum process
+#'
+#'@param n number of steps
+#'@param p value between 0 and 1 that represents the probability of preserving 
+#'the previous direction
+#'@return vector containing the particle's final position
+
+momentum_walk1 <- function(n, p) {
+  #sanitize input
+  if (n < 1) {
+    stop("n must be greater than or equal to 1")
+  }
+  if (!is.positive(n) | (n %% 1) != 0) {
+    stop("n must be a positive integer ")
+  }
+  if (p < 0 || p > 1) {
+    stop("p must be between 0 and 1 inclusive")
+  }
+  
+  #vector for current position, at starting point initially
+  current_pos <- c(0, 0)
+  
+  #list of possible steps; choice would be added to current_pos to update
+  #right, up, left, down
+  possible_steps <- list(c(1, 0), c(0, 1), c(-1, 0), c(0, -1))
+  
+  #first step: all 4 dirs have prob 1/4, choose the first step
+    #default is equal probability, included for clarity
+  step_choice <- sample(possible_steps, size = 1, 
+                        prob = c(0.25, 0.25, 0.25, 0.25))
+  #variable for keeping track of what the step's direction is for later
+    #contains vector, eg. 1 0 
+  step_dir <- step_choice[[1]]
+  #current position update; current_pos: vector, step_dir: vector 
+    #pulled from list step1_choice 
+  current_pos <- current_pos + step_dir
+  
+  if (n == 1) {
+    return(current_pos)
+  }
+
+  #loop through the rest of the steps if there's more than one step
+    #P(X = 1) = p (event that we go in the same dir), 
+    #P(X = 0) = 1-p (event that we re-choose a direction)
+  if (n > 1) {
+    for (i in 1:(n-1)) {
+      #gives 1 or 0
+      same_dir <- rbinom(n = 1, size = 1, prob = p)
+      #if the bernoulli trial -> 1: take step in same dir
+      if (same_dir == 1) {
+        current_pos <- current_pos + step_dir
+      #if -> 0, go through same steps as step 1 to choose a direction
+      } else {
+        step_choice <- sample(possible_steps, size = 1, 
+                        prob = c(0.25, 0.25, 0.25, 0.25))
+        step_dir <- step_choice[[1]]
+        current_pos <- current_pos + step_dir
+      }
+    }
+  }
+  return(current_pos)
+}
+```
+
+```{r}
+momentum_walk1(10, 0.6)
+
+momentum_walk1(1000, 0.6)
+```
+
+In momentum_walk(), I created a list of possible steps to 'choose' or sample 
+from for the first step and any steps later on where we need to re-choose the 
+direction. After taking the first step, the direction of that step is recorded, 
+and we start to loop through steps 2 through n. Since we either keep the same 
+direction as the previous step or choose the direction again, it ends up being 
+a Bernoulli trial each loop, where X = 1 has a probability of p and X = 0 has 
+a probability of 1-p. Depending on the outcome of the random Bernoulli trial, 
+we take a step in the same direction or we go through the process of choosing 
+from the four directions again. 
+
+b (ii). write the function momentum_walk2(n, p) using one of the apply functions 
+(choose an appropriate member of the apply family), briefly explain logic of 
+each implementation
+
+```{r}
+#'Function to simulate random walk with momentum process using an lapply
+#'
+#'@param n number of steps
+#'@param p value between 0 and 1 that represents the probability of preserving 
+#'the previous direction
+#'@return vector containing the particle's final position
+
+momentum_walk2 <- function(n, p) {
+  #sanitize input
+  if (n < 1) {
+    stop("n must be greater than or equal to 1")
+  }
+  if (!is.positive(n) | (n %% 1) != 0) {
+    stop("n must be a positive integer ")
+  }
+  if (p < 0 || p > 1) {
+    stop("p must be between 0 and 1 inclusive")
+  }
+  
+  possible_steps <- list(c(1, 0), c(0, 1), c(-1, 0), c(0, -1))
+  #contains direction vector of first step, first step's position
+  first_step <- sample(possible_steps, size = 1, 
+                        prob = c(0.25, 0.25, 0.25, 0.25))[[1]]
+  step_dir <- first_step
+  
+  #if there's only one step, return the first step's position
+  if (n == 1) {
+    return(first_step)
+  }
+  
+  #if there's more than one step, get rest of steps' direction vectors (eg. 1 0) 
+    #use lapply, then add them all to pos after 1st step => final position
+  if (n > 1) {
+    #idea to use seq_len(): https://stackoverflow.com/questions/58086033/how-to-pass-the-first-argument-to-lapply-so-that-it-represents-a-list-of-rows
+  #rest_of_steps: a list containing the directions for steps 2 through n 
+  rest_of_steps <- lapply(seq_len(n-1), function(x) {
+    same_dir <- rbinom(n = 1, size = 1, prob = p)
+    #if we're not keeping the same direction as previous step
+    if (same_dir == 0) {
+      #choose direction again
+      step_choice <- sample(possible_steps, size = 1, 
+                        prob = c(0.25, 0.25, 0.25, 0.25))
+      #update step direction; seems to be only way to update it outside lapply
+      step_dir <<- step_choice[[1]]
+    }
+    #return direction from this step
+    return(step_dir)
+  })
+  }
+  #all step directions, first_step originally vector, make into list since
+    #rest_of_steps is a list 
+  all_step_dirs <- c(list(first_step), rest_of_steps)
+  
+  #add all of the direction vectors together to get final position of particle
+  #idea to use Reduce: https://stackoverflow.com/questions/49516132/how-to-sum-list-of-list-of-vector-in-r
+  final_pos <- Reduce(`+`, all_step_dirs)
+  return(final_pos)
+}
+
+momentum_walk2(10, 0.6)
+
+momentum_walk2(1000, 0.6)
+```
+
+momentum_walk2 uses similar logic to momentum_walk1, only I'm using lapply() 
+instead of a for loop for steps 2 through n. Using lapply() meant that the 
+variables had to be updated using <<- in order for the update to be in the 
+function rather than within lapply(), even though it's not usually recommended 
+to do so. Updating the position each iteration seemed a little complicated in 
+lapply(), so instead I just returned each step's direction so that the variable 
+rest_of_steps was a list of direction vectors, and then added them all together 
+at the end.
+
+c. reproducibility
+```{r}
+set.seed(10)
+momentum_walk1(10, 0.6)
+momentum_walk1(1000, 0.6)
+```
+
+Using set.seed() ensures that we get the same 'random' sequence every time the
+code is run. 
+
+d. does momentum matter? consider p = 0, p = 0.5, p = 0.9
+
+i. for each val of p, simulate walk of 1000 steps
+```{r}
+set.seed(10)
+
+final_location0 <- momentum_walk1(1000, 0)
+dist0 <- sqrt(final_location0[1]^2 + final_location0[2]^2)
+dist0
+
+final_location0_5 <- momentum_walk1(1000, 0.5)
+dist0_5 <- sqrt(final_location0_5[1]^2 + final_location0_5[2]^2)
+dist0_5
+
+final_location0_9 <- momentum_walk1(1000, 0.9)
+dist0_9 <- sqrt(final_location0_9[1]^2 + final_location0_9[2]^2)
+dist0_9
+```
+
+ii. Increasing momentum appears to increase the final distance
+
+iii. A higher p value may mean a greater chance the particle will continue 
+moving in the same direction as before, and a lesser chance of moving back to 
+its previous position (eg. up then back down or right then back to the left), 
+which could increase the final distance.
+
+e. (i + ii) Monte Carlo simulation
+```{r}
+set.seed(10)
+
+#number of steps in each walk
+num_steps <- 1000
+#number of walks
+num_walks <- 1000
+#all the p values we want to get avg final distances for 
+p_vals <- c(0, 0.25, 0.5, 0.75, 0.9)
+
+#list of final distance averages
+avg_final_dists <- lapply(p_vals, function(p) {
+  #replicate/repeat getting the distance num_walks amount of times for current p
+  final_dists <- replicate(num_walks, expr = {
+    final_location <- momentum_walk1(num_steps, p)
+    sqrt(final_location[1]^2 + final_location[2]^2)
+  })
+  #average the final distances for current p
+  mean(final_dists)
+})
+```
+
+
+iii.
+```{r}
+results_table <- data.frame(p = p_vals, mean_dist = unlist(avg_final_dists))
+results_table
+```
+
+iv. As p increases, the average distance the particle travels increases as well. 
+
+f. compare computational performance
+
+Use the microbenchmark package to compare the speed of your two implementations. 
+Compare their performance when n = 1000, p = 0.6, and n = 100000, p = 0.6. 
+Summarize your results
+```{r}
+thousand <- microbenchmark(momentum_walk1(1000, 0.6),
+               momentum_walk2(1000, 0.6))
+
+hundred_thousand <- microbenchmark(momentum_walk1(100000, 0.6),
+               momentum_walk2(100000, 0.6))
+```
+
+i. Which implementation is faster? 
+
+My implementation of momentum_walk1 is faster than momentum_walk2. My 
+implementation of momentum_walk2 must not be very good since I'd expected the 
+other way around.
+
+ii. Does the difference become larger for the larger input?
+
+The difference doesn't really get larger by much for the larger input. The 
+average for momentum_walk2 is about 1.33 for 1000 iterations, and 1.34 for 
+100,000.
+
+```{r}
+(2.164636/1.621824)*100
+
+(223.6310/166.9582)*100
+```
+
+iii. Why might the implementations have different execution times?
+
+My momentum_walk2 implementation is probably slower because I use lapply() to 
+return a large list, which I add the first step to, creating a larger list, 
+whereas in momentum_walk1 I just update a couple variables. So even though I'm 
+looping in momentum_walk1, the way I used lapply() makes momentum_walk2 slower. 
+Some other factors might also make momentum_walk2 slower, like my use of <<- or 
+maybe repeatedly calling a slightly complicated function within lapply(). 
+
+
+Problem 2 - Bus Passengers Monte Carlo Estimation
+```{r}
+set.seed(10)
+
+num_days <- 10000
+
+#from 6 to 8 (3 hrs), follows Pois(4) distribution
+  #rpois(num_days, etc) -> generates 10000 datasets, three hours -> mult by 3
+six_to_eight <- rpois(n = num_days * 3, 
+                      lambda = 4)
+six_to_eight_mat <- matrix(six_to_eight, 
+                           nrow = 3, 
+                           ncol = num_days)
+six_to_eight_total <- apply(six_to_eight_mat, 2, sum)
+
+#9 (1 hr), N(45, 16), sd = sqrt(16)
+nine_peak <- rnorm(n = num_days, 
+                   mean = 45, 
+                   sd = 4)
+
+#10-3(6 hrs), Pois(15)
+ten_to_three <- rpois(n = num_days * 6, 
+                      lambda = 15)
+ten_to_three_mat <- matrix(ten_to_three, 
+                           nrow = 6, 
+                           ncol = num_days)
+ten_to_three_total <- apply(ten_to_three_mat, 2, sum)
+
+#4 (1 hr), N(55, 25)
+four_peak <- rnorm(n = num_days, 
+                   mean = 55, 
+                   sd = 5)
+
+#5-10 (6 hrs), Pois(9)
+five_to_ten <- rpois(n = num_days * 6, 
+                     lambda = 9)
+five_to_ten_mat <- matrix(five_to_ten, 
+                           nrow = 6, 
+                           ncol = num_days)
+five_to_ten_total <- apply(five_to_ten_mat, 2, sum)
+
+daily_passenger_totals <- six_to_eight_total + nine_peak + ten_to_three_total +
+                          four_peak + five_to_ten_total
+
+estimated_daily_total <- mean(daily_passenger_totals)
+estimated_daily_total
+```
+
+Based on the Monte Carlo simulation, the estimated number of passengers who 
+board the bus per day is about 256. 
+
+
+Problem 3 - Linear Regression
+a. Data preparation and de-identification
+
+Remove all variables that could uniquely identify a particular commercial. 
+This includes variables such as the brand, title, URLs, YouTube channel, and 
+publication information.
+
+After removing these variables, report the dimensions of the resulting dataset.
+
+```{r}
+youtube <- read.csv(
+  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-02/youtube.csv"
+)
+head(youtube)
+dim(youtube)
+#get column names
+names(youtube) 
+
+#de-identification: remove brand, title, urls, yt channel, publication info
+youtube_di <- youtube |>
+  select(-c(brand, superbowl_ads_dot_com_url, youtube_url, published_at, title,
+            channel_title))
+head(youtube_di)
+dim(youtube_di)
+```
+
+The dimension of the de-identified dataset is 247 rows by 19 columns
+
+b. Exploring potential outcomes
+
+Examine distribution + determine which of following categs. is most appropriate:
+
+The variable can be used as is as the outcome in a linear regression model.
+
+The variable should be transformed before being used as the outcome in a linear regression model.
+
+The variable is not appropriate to use as the outcome in a linear regression model.
+
+Briefly justify your decision for each variable.
+
+If you decide that a transformation is needed, perform an appropriate transformation and use the transformed variable for the remainder of the problem.
+```{r}
+#view_count, like_count, dislike_count, favorite_count, comment_count
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
