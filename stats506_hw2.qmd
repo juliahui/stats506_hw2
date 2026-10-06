@@ -369,19 +369,19 @@ youtube <- read.csv(
   "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-02/youtube.csv"
 )
 head(youtube)
-dim(youtube)
-#get column names
-names(youtube) 
-
 #de-identification: remove brand, title, urls, yt channel, publication info
+  #removed: brand, urls, publication info, title, channel_title, id, etag, 
+    #description, and thumbnail, since based on head(youtube) these seem to have
+      #identifying information
 youtube_di <- youtube |>
-  select(-c(brand, superbowl_ads_dot_com_url, youtube_url, published_at, title,
-            channel_title))
-head(youtube_di)
+  select(-c(brand, superbowl_ads_dot_com_url, youtube_url, id, etag, 
+            published_at, title, channel_title, description, thumbnail))
+head(youtube_di)  
 dim(youtube_di)
+names(youtube_di) 
 ```
 
-The dimension of the de-identified dataset is 247 rows by 19 columns
+The dimension of the de-identified dataset is 247 rows by 15 columns
 
 b. Exploring potential outcomes
 
@@ -389,23 +389,156 @@ Examine distribution + determine which of following categs. is most appropriate:
 
 The variable can be used as is as the outcome in a linear regression model.
 
-The variable should be transformed before being used as the outcome in a linear regression model.
+The variable should be transformed before being used as the outcome in a linear 
+regression model.
 
-The variable is not appropriate to use as the outcome in a linear regression model.
+The variable is not appropriate to use as the outcome in a linear regression 
+model.
 
 Briefly justify your decision for each variable.
 
-If you decide that a transformation is needed, perform an appropriate transformation and use the transformed variable for the remainder of the problem.
+If you decide that a transformation is needed, perform an appropriate 
+transformation and use the transformed variable for the remainder of the problem.
 ```{r}
 #view_count, like_count, dislike_count, favorite_count, comment_count
+#see what values there are
+table(youtube_di$view_count, useNA = "ifany")
+
+table(youtube_di$like_count, useNA = "ifany")
+
+table(youtube_di$dislike_count, useNA = "ifany")
+
+table(youtube_di$favorite_count, useNA = "ifany")
+
+table(youtube_di$comment_count, useNA = "ifany")
+
+#check summary statistics
+count_var_summaries <- youtube_di |> 
+  select(c(view_count, like_count, dislike_count, 
+           favorite_count, comment_count)) |>
+  summary()
+count_var_summaries
 ```
 
+Based on the value distribution and the summary statistics, I think all the 
+variables except favorite_count can be used in linear regression after some sort 
+of transformation. Favorite_count isn't appropriate to use as an outcome in 
+linear regression since it only has 0s or NAs. The rest of the variables all 
+have means that are a lot greater than their medians, and they have some very 
+high values, which means they're right-skewed. The table shows 0s for likes, 
+dislikes, and comments, so I decided use a log transformation but with 1 added 
+for the 0s. 
 
+```{r}
+#idea for transformation: 
+  #https://www.r-bloggers.com/2024/12/how-to-transform-data-in-r-log-square-root-cube-root/
+youtube_di <- youtube_di |>
+  mutate(
+    view_count_log = log1p(view_count),
+    like_count_log = log1p(like_count),
+    dislike_count_log = log1p(dislike_count),
+    comment_count_log = log1p(comment_count)
+  )
+head(youtube_di)
+```
 
+c. fitting linear regression models
 
+binary vars: funny, show_product_quickly, patriotic, celebrity, danger, animals, 
+use_sex
+```{r}
+#'Function to fit a linear regression model
+#'
+#'@param outcome variable used as outcome in lin regr model (from part 3b)
+#'@param pred predictor (binary commerical characteristic)
+#'@return vector of coefficients
 
+fit_lin_regr <- function(outcome, pred) {
+  model <- lm(outcome ~ pred + youtube_di$year)
+  coefs <- summary(model)$coefficients
+  #return vector of coefficients (estimate, p-val) for binary var
+  c(estimate = coefs["predTRUE", "Estimate"],
+    p_value  = coefs["predTRUE", "Pr(>|t|)"])
+}
 
+#list of.binary variables 
+binary_vars <- list(
+  funny = youtube_di$funny,
+  show_product_quickly = youtube_di$show_product_quickly,
+  patriotic = youtube_di$patriotic,
+  celebrity = youtube_di$celebrity,
+  danger = youtube_di$danger,
+  animals = youtube_di$animals,
+  use_sex = youtube_di$use_sex
+)
 
+#get model coefficients for each binary variable for view_count_log
+view_list <- lapply(binary_vars, function(x) {
+  fit_lin_regr(youtube_di$view_count_log, x)})
+view_results <- as.data.frame(view_list)
+view_results
+
+#get model coefficients for each binary variable for like_count_log
+like_list <- lapply(binary_vars, function(x) {
+  fit_lin_regr(youtube_di$like_count_log, x)})
+like_results <- as.data.frame(like_list)
+like_results
+
+#get model coefficients for each binary variable for dislike_count_log
+dislike_list <- lapply(binary_vars, function(x) {
+  fit_lin_regr(youtube_di$dislike_count_log, x)})
+dislike_results <- as.data.frame(dislike_list)
+dislike_results
+
+#get model coefficients for each binary variable for comment_count_log
+comment_list <- lapply(binary_vars, function(x) {
+  fit_lin_regr(youtube_di$comment_count_log, x)})
+comment_results <- as.data.frame(comment_list)
+comment_results
+
+#check to see if any of the p-values were less than 0.05
+view_results["p_value", ] < 0.05
+like_results["p_value", ] < 0.05
+dislike_results["p_value", ] < 0.05
+comment_results["p_value", ] < 0.05
+
+#see which binary var/commercial char had largest positive estimated association
+  #which.max: index of largest estimate coeff, pull that value from view_results
+which.max(view_results["estimate", ])
+view_results["estimate", which.max(view_results["estimate", ])]
+```
+
+It doesn't seem like any of the commercial characteristics had statistically 
+significant p-values. Danger had the largest positive estimated association with 
+view counts (about 0.67). 
+
+d. estimating regression coeffs using matrix algebra
+```{r}
+#see which commercial characteristic had the smallest p value
+names(which.min(view_results["p_value", ]))
+
+#danger had the smallest p value, create dataframe with just the necessary vars
+danger_df <- youtube_di |>
+  select(year, danger, view_count_log) |> 
+  drop_na()
+head(danger_df)
+
+y <- danger_df$view_count_log
+
+#design matrix X: no intercept in data, use 1
+X <- cbind(1, danger_df$danger, danger_df$year)
+colnames(X) <- c("Intercept", "danger", "year")
+
+#beta_hat = (X'X)^{-1} * X'y
+beta_hat <- solve(t(X) %*% X) %*% t(X) %*% y
+beta_hat
+
+#fit the same model with lm() + get coefficients
+coef(lm(view_count_log ~ danger + year, data = danger_df))
+```
+
+The coefficients for both methods are both 0.66678076 and 0.02065641 for 
+danger and year respectively. 
 
 
 
